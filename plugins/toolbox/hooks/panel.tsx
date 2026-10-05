@@ -309,7 +309,7 @@ export function registerPanel(on: On): void {
         {open ? (
           <Box flexShrink={0}>{button}</Box>
         ) : (
-          <Box flexShrink={0} backgroundColor={ORANGE}>
+          <Box flexShrink={0}>
             {button}
           </Box>
         )}
