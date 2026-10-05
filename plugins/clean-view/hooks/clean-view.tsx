@@ -95,7 +95,8 @@ const MODE_REPLY: Record<CleanViewMode, string> = {
   off: 'Clean View is off.',
 }
 
-const mode = atom({ plugin: 'clean-view', key: 'mode' } as const, 'on' as CleanViewMode)
+const MODE = { plugin: 'clean-view', key: 'mode' } as const
+const mode = atom(MODE, 'on' as CleanViewMode)
 const checklist = atom({ plugin: 'clean-view', key: 'checklist' } as const, EMPTY)
 const tick = atom({ plugin: 'clean-view', key: 'tick' } as const, 0)
 
@@ -158,14 +159,25 @@ function nextMode(current: CleanViewMode): CleanViewMode {
   return MODES[(MODES.indexOf(current) + 1) % MODES.length]!
 }
 
+/**
+ * The mode now. A /clear starts the session's state over, and no event this
+ * mod can count on fires after it, so a mode not set yet this session comes
+ * from the store.
+ */
+async function currentMode($: Engine): Promise<CleanViewMode> {
+  const { value } = await $.state.get(MODE)
+
+  return isMode(value) ? value : storedMode($)
+}
+
 /** The checklist runs in `on` and `both`. */
 async function isTracking($: Engine): Promise<boolean> {
-  return (await read($, mode)) !== 'off'
+  return (await currentMode($)) !== 'off'
 }
 
 /** Tool rows are hidden only in `on`; `both` keeps them next to the checklist. */
 async function isHiding($: Engine): Promise<boolean> {
-  return (await read($, mode)) === 'on'
+  return (await currentMode($)) === 'on'
 }
 
 function isRunning(phase: CleanViewPhase): boolean {
@@ -573,7 +585,7 @@ async function trackOutcome($: Engine, ran: { deny?: string; isError?: true; tex
 /** Draws the band; null when there is nothing to show. With Toolbox loaded, the mode switch lives in its panel. */
 async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>, hasToolbox: boolean): Promise<RenderElement | null> {
   const { Box, Text, Button } = $.ui.resolve(e)
-  const current = await read($, mode)
+  const current = await currentMode($)
   const list = await read($, checklist)
   const frame = await read($, tick)
   const now = await $.clock.now()
@@ -755,7 +767,7 @@ export function registerCleanView(on: On): void {
       return { text: 'Use /simple on, /simple both, /simple off, or /simple to go to the next mode.' }
     }
 
-    const value = arg === '' ? nextMode(await read($, mode)) : arg
+    const value = arg === '' ? nextMode(await currentMode($)) : arg
     await setMode($, value)
 
     return { text: MODE_REPLY[value] }
@@ -932,7 +944,7 @@ export function registerCleanView(on: On): void {
     }
 
     // Sent on each draw, so the Toolbox panel has the row again after Toolbox reloads.
-    const hasToolbox = sendToolboxRow($, await read($, mode))
+    const hasToolbox = sendToolboxRow($, await currentMode($))
     const { Box } = $.ui.resolve(e)
     const band = await drawBand($, e, hasToolbox)
     const beneath = await next(e)

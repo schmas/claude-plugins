@@ -16,10 +16,15 @@ const BAND_PROPS = {
   view: {},
 }
 
-/** Answers what the engine would answer beneath the plugin. Register test hooks before calling it. */
-async function boot($: Engine, on: On): Promise<void> {
+type Start = { store?: Record<string, unknown>; isClear?: boolean }
+
+/**
+ * Answers what the engine would answer beneath the plugin. Register test hooks before calling it.
+ * With `isClear`, the session is as after a /clear: empty state, the saved store, and no start event.
+ */
+async function boot($: Engine, on: On, start: Start = {}): Promise<void> {
   mock.clock(on, { now: 1_000_000 })
-  mock.store(on)
+  mock.store(on, start.store)
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('tool.register', ($, e) => ({ value: { tool: `mcp__clean-view__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
@@ -35,7 +40,9 @@ async function boot($: Engine, on: On): Promise<void> {
       usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     },
   }))
-  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  if (start.isClear !== true) {
+    await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  }
 }
 
 function band<S extends (typeof SURFACES)[number]>(surface: S) {
@@ -290,4 +297,14 @@ test('with Toolbox loaded, the Clean View row matches /simple and a press steps 
   const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
   expect(await band.find({ key: 'toggle' })).toBeUndefined()
   await band.unmount()
+})
+
+test('after a /clear the Toolbox row shows the saved mode', { plugins: [FAKE_TOOLBOX] }, async ($, on) => {
+  await boot($, on, { store: { cleanViewMode: 'both' }, isClear: true })
+  // Clean View sends its row while it draws its band.
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  await band.unmount()
+  const ui = await $.ui.mount({ plugin: 'toolbox', surface: 'terminal', component: 'PromptHint', props: { isDraft: false, isWorking: false, hint: '' } })
+  expect((await ui.find({ type: 'Text', text: /^Clean View: / }))?.text).toBe('Clean View: Both')
+  await ui.unmount()
 })
