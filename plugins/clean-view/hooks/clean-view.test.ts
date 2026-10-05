@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { Engine, Plugin } from 'claude-code/testing'
+import type { On, RenderElement } from 'claude-code'
 
 const PLUGIN = 'clean-view'
 const PLAN = 'mcp__clean-view__plan_steps'
@@ -26,6 +26,8 @@ async function boot($: Engine, on: On): Promise<void> {
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('classic.Notification', () => ({}))
+  // The engine's own band beneath the plugin: empty.
+  on('ui.render', ($, e) => h($.ui.resolve(e).Box, { key: 'engine' }) as RenderElement)
   on('model.complete', () => ({
     value: {
       isAnswered: true as const,
@@ -227,4 +229,65 @@ test('the plan gate stays on in both mode and is off in off mode', async ($, on)
 
   await $.command.run({ command: 'simple', args: 'off' } as never)
   expect((await $.tool.call({ tool: 'Bash', command: 'ls' } as never)).deny).toBeUndefined()
+})
+
+/** Stands in for the Toolbox mod: keeps the rows sent to it and presses one from the hint line. */
+const FAKE_TOOLBOX: Plugin = {
+  name: 'toolbox',
+  register(on) {
+    let rows: { id: string; value: boolean | string; options?: readonly string[] }[] = []
+
+    on('engine.create', async ($, e, next) => ({
+      ...(await next(e)),
+      toolbox: {
+        addSetting: (row: { id: string; value: boolean | string; options?: readonly string[] }) => {
+          rows = [...rows.filter(one => one.id !== row.id), row]
+        },
+      },
+    }))
+
+    on('ui.render', { component: 'PromptHint' }, async ($, e) => {
+      const { Box, Button, Text } = $.ui.resolve(e)
+      const row = rows.find(one => one.id === 'clean-view.mode')
+      const options = row?.options ?? []
+      const value = options[(options.indexOf(String(row?.value)) + 1) % options.length] ?? null
+
+      return h(
+        Box,
+        {},
+        h(Text, {}, `Clean View: ${String(row?.value)}`),
+        h(Button, {
+          key: 'press',
+          label: 'next',
+          onPress: () => $.state.set({ plugin: 'toolbox', key: 'press' }, { id: 'clean-view.mode', value, count: Date.now() }),
+        }),
+      ) as RenderElement
+    })
+  },
+}
+
+test('with Toolbox loaded, the Clean View row matches /simple and a press steps it', { plugins: [FAKE_TOOLBOX] }, async ($, on) => {
+  await boot($, on)
+  const hint = { plugin: 'toolbox', surface: 'terminal' as const, component: 'PromptHint' as const, props: { isDraft: false, isWorking: false, hint: '' } }
+  // The stand-in keeps rows in a plain variable, so each check draws it afresh.
+  const rowText = async () => {
+    const ui = await $.ui.mount(hint)
+    const text = (await ui.find({ type: 'Text', text: /^Clean View: / }))?.text
+    await ui.unmount()
+
+    return text
+  }
+  expect(await rowText()).toBe('Clean View: On')
+
+  await $.command.run({ command: 'simple', args: 'off' } as never)
+  expect(await rowText()).toBe('Clean View: Off')
+
+  const ui = await $.ui.mount(hint)
+  await ui.press({ key: 'press' })
+  await ui.unmount()
+  expect(await rowText()).toBe('Clean View: On')
+  // The mode switch lives in the Toolbox panel, so the band has no button of its own.
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(await band.find({ key: 'toggle' })).toBeUndefined()
+  await band.unmount()
 })

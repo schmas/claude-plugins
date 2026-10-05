@@ -4,7 +4,7 @@ Public Claude Code plugins and mods by schmas.
 
 | Plugin | Scope | Contents |
 |---|---|---|
-| [`clean-view`](./plugins/clean-view) | Calm view for non-technical users (mod) | Hides tool calls, diffs and command output; shows one plain-English checklist with progress meters above the prompt. Three modes: `on` hides details, `both` shows details and the checklist, `off`. Switch with the band button or `/simple on\|both\|off` |
+| [`clean-view`](./plugins/clean-view) | Calm view for non-technical users (mod) | Hides tool calls, diffs and command output; shows one plain-English checklist with progress meters above the prompt. Three modes: `on` hides details, `both` shows details and the checklist, `off`. Switch with the band button or `/simple on\|both\|off`. With Toolbox installed, the switch is a row in the Toolbox panel |
 | [`toolbox`](./plugins/toolbox) | Model and effort switcher (mod) | Orange **◆ Toolbox** button under the prompt opens a panel above it. One click sets the session model or effort. Other mods add rows to it through `$.toolbox`. Toggle with the button or `/toolbox` |
 
 ## Install

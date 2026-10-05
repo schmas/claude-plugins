@@ -82,6 +82,13 @@ const MODE_TOAST: Record<CleanViewMode, string> = {
   off: 'Clean View is off. You see every detail again.',
 }
 
+/** The Toolbox row's choices, in /simple's order. */
+const MODE_CHOICE: Record<CleanViewMode, string> = {
+  on: 'On',
+  both: 'Both',
+  off: 'Off',
+}
+
 const MODE_REPLY: Record<CleanViewMode, string> = {
   on: 'Clean View is on.',
   both: 'Clean View is on, with every detail shown.',
@@ -398,7 +405,37 @@ async function resume($: Engine): Promise<void> {
 async function setMode($: Engine, value: CleanViewMode): Promise<void> {
   await update($, mode, () => value)
   await $.store.set(STORE_KEY, value)
+  sendToolboxRow($, value)
   $.ui.toast(MODE_TOAST[value])
+}
+
+/** The mode a Toolbox choice names, or null for an unknown one. */
+export function choiceMode(choice: unknown): CleanViewMode | null {
+  return MODES.find(one => MODE_CHOICE[one] === choice) ?? null
+}
+
+const TOOLBOX_ROW = 'clean-view.mode'
+
+/**
+ * Sends the mode switch to the Toolbox panel when the Toolbox mod is loaded.
+ * Returns false when Toolbox is not loaded, so Clean View keeps its own button.
+ */
+function sendToolboxRow($: Engine, current: CleanViewMode): boolean {
+  try {
+    $.toolbox.addSetting({
+      id: TOOLBOX_ROW,
+      label: 'Clean View',
+      hint: 'simple checklist',
+      kind: 'choice',
+      options: MODES.map(one => MODE_CHOICE[one]),
+      value: MODE_CHOICE[current],
+    })
+
+    return true
+  } catch {
+    // Toolbox is not installed or not enabled: Clean View works as before.
+    return false
+  }
 }
 
 async function storedMode($: Engine): Promise<CleanViewMode> {
@@ -533,7 +570,8 @@ async function trackOutcome($: Engine, ran: { deny?: string; isError?: true; tex
   await change($, list => (list.phase === 'stuck' ? { ...list, phase: 'working', stuckReason: null } : list))
 }
 
-async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>) {
+/** Draws the band; null when there is nothing to show. With Toolbox loaded, the mode switch lives in its panel. */
+async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>, hasToolbox: boolean): Promise<RenderElement | null> {
   const { Box, Text, Button } = $.ui.resolve(e)
   const current = await read($, mode)
   const list = await read($, checklist)
@@ -541,7 +579,9 @@ async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>) {
   const now = await $.clock.now()
   const width = Math.max(20, e.props.bodyColumns)
 
-  const toggle = <Button key="toggle" label={MODE_LABEL[current]} onPress={() => setMode($, nextMode(current))} />
+  const toggle = hasToolbox ? null : (
+    <Button key="toggle" label={MODE_LABEL[current]} onPress={() => setMode($, nextMode(current))} />
+  )
   const headerRow = (left: RenderElement | null) => (
     <Box key="header" flexDirection="row" justifyContent="space-between" width={width}>
       <Box flexShrink={1}>{left ?? <Text> </Text>}</Box>
@@ -550,7 +590,7 @@ async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>) {
   )
 
   if (current === 'off' || list.phase === 'idle') {
-    return <Box flexDirection="column">{headerRow(null)}</Box>
+    return hasToolbox ? null : <Box flexDirection="column">{headerRow(null)}</Box>
   }
 
   const title = list.title || FALLBACK_NAME
@@ -690,8 +730,22 @@ export function registerCleanView(on: On): void {
     const stored = await storedMode($)
     await update($, mode, () => stored)
     syncClock($, await read($, checklist))
+    sendToolboxRow($, stored)
 
     return next(e)
+  })
+
+  // A click on Clean View's row in the Toolbox panel.
+  on('state.set', { plugin: 'toolbox', key: 'press' }, async ($, e, next) => {
+    const result = await next(e)
+    const pressed = e.value
+    const value = pressed !== null && pressed.id === TOOLBOX_ROW ? choiceMode(pressed.value) : null
+
+    if (value !== null) {
+      await setMode($, value)
+    }
+
+    return result
   })
 
   on('command.run', { command: 'simple' }, async ($, e) => {
@@ -877,6 +931,21 @@ export function registerCleanView(on: On): void {
       return next(e)
     }
 
-    return drawBand($, e)
+    // Sent on each draw, so the Toolbox panel has the row again after Toolbox reloads.
+    const hasToolbox = sendToolboxRow($, await read($, mode))
+    const { Box } = $.ui.resolve(e)
+    const band = await drawBand($, e, hasToolbox)
+    const beneath = await next(e)
+
+    if (band === null) {
+      return beneath
+    }
+
+    return (
+      <Box flexDirection="column">
+        {band}
+        {beneath}
+      </Box>
+    )
   })
 }
