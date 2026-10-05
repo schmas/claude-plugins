@@ -1,0 +1,17 @@
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Agent working dir (local only)
+.agents/
+.agent/
+
+# Editor noise
+.vscode/
+.idea/
+*.swp
+
+# Secrets
+.env
+.env.local
+*.local.md

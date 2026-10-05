@@ -1,0 +1,17 @@
+{
+  "name": "schmas",
+  "description": "Public Claude Code plugins and mods by schmas.",
+  "owner": {
+    "name": "schmas"
+  },
+  "plugins": [
+    {
+      "name": "clean-view",
+      "source": "./plugins/clean-view",
+      "description": "Clean View mod: a calm, non-technical view of Claude Code. Hides tool calls, diffs and command output, and shows one plain-English checklist with progress meters above the prompt. Toggle with the band button or /simple on|off.",
+      "version": "0.1.0",
+      "category": "ui",
+      "tags": ["mod", "function-hooks", "ui", "checklist", "progress", "non-technical"]
+    }
+  ]
+}

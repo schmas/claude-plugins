@@ -1,0 +1,11 @@
+{
+  "name": "clean-view",
+  "version": "0.1.0",
+  "description": "Calm, non-technical view: hides tool rows and shows one plain-English checklist above the prompt.",
+  "author": {
+    "name": "schmas"
+  },
+  "keywords": ["mod", "ui", "checklist", "progress", "non-technical"],
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
