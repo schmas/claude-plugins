@@ -1,3 +1,6 @@
+/** `on` hides details, `both` shows details and the checklist, `off` shows details only. */
+export type CleanViewMode = 'on' | 'both' | 'off'
+
 export type CleanViewTaskStatus = 'done' | 'active' | 'upcoming'
 
 export type CleanViewTask = {
@@ -26,7 +29,7 @@ export type CleanViewChecklist = {
 declare module 'claude-code' {
   interface PluginState {
     'clean-view': {
-      cleanViewEnabled: boolean
+      mode: CleanViewMode
       checklist: CleanViewChecklist
       tick: number
     }

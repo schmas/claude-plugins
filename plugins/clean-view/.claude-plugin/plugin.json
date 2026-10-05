@@ -1,6 +1,6 @@
 {
   "name": "clean-view",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Calm, non-technical view: hides tool rows and shows one plain-English checklist above the prompt.",
   "author": {
     "name": "schmas"

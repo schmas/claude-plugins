@@ -4,7 +4,7 @@ Public Claude Code plugins and mods by schmas.
 
 | Plugin | Scope | Contents |
 |---|---|---|
-| [`clean-view`](./plugins/clean-view) | Calm view for non-technical users (mod) | Hides tool calls, diffs and command output; shows one plain-English checklist with progress meters above the prompt. Toggle with the band button or `/simple on\|off` |
+| [`clean-view`](./plugins/clean-view) | Calm view for non-technical users (mod) | Hides tool calls, diffs and command output; shows one plain-English checklist with progress meters above the prompt. Three modes: `on` hides details, `both` shows details and the checklist, `off`. Switch with the band button or `/simple on\|both\|off` |
 
 ## Install
 

@@ -177,3 +177,54 @@ test('tool rows are hidden while Clean View is on and come back when off', async
   expect(await ui.find({ text: /Bash\(ls\)/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('/simple both shows tool rows and the checklist together', async ($, on) => {
+  on('ui.render', { component: 'ToolUse' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return Text({ children: ['Bash(ls)'] })
+  })
+  await boot($, on)
+  await $.turn.start({ text: 'Build my landing page', turnId: 't1' })
+  const ran = await $.command.run({ command: 'simple', args: 'both' } as never)
+  expect(ran.text).toBe('Clean View is on, with every detail shown.')
+
+  for (const surface of SURFACES) {
+    const row = await $.ui.mount({
+      plugin: PLUGIN,
+      surface,
+      component: 'ToolUse' as const,
+      props: { tool_use_id: 'tu1', tool: 'Bash', input: { command: 'ls' }, isRunning: false, isErrored: false, isInterrupted: false },
+    })
+    expect(await row.find({ text: /Bash\(ls\)/ })).toBeDefined()
+    await row.unmount()
+
+    const ui = await $.ui.mount(band(surface))
+    expect(await ui.find({ text: /Understand your request/ })).toBeDefined()
+    expect((await ui.find({ key: 'toggle' }))?.props.label).toBe('◐ Clean View: BOTH')
+    await ui.unmount()
+  }
+})
+
+test('/simple with no argument cycles on, both, off', async ($, on) => {
+  await boot($, on)
+  const replies: string[] = []
+
+  for (let at = 0; at < 3; at += 1) {
+    replies.push((await $.command.run({ command: 'simple', args: '' } as never)).text ?? '')
+  }
+
+  expect(replies).toEqual(['Clean View is on, with every detail shown.', 'Clean View is off.', 'Clean View is on.'])
+  expect((await $.command.run({ command: 'simple', args: 'maybe' } as never)).text).toMatch(/\/simple both/)
+})
+
+test('the plan gate stays on in both mode and is off in off mode', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: 'ok', stderr: '', interrupted: false }, text: 'ok' }))
+  await boot($, on)
+
+  await $.command.run({ command: 'simple', args: 'both' } as never)
+  expect((await $.tool.call({ tool: 'Bash', command: 'ls' } as never)).deny).toContain('plan_steps')
+
+  await $.command.run({ command: 'simple', args: 'off' } as never)
+  expect((await $.tool.call({ tool: 'Bash', command: 'ls' } as never)).deny).toBeUndefined()
+})

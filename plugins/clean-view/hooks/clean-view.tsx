@@ -1,13 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, RenderElement, RenderInput, Timer } from 'claude-code'
 
-import type { CleanViewChecklist, CleanViewPhase, CleanViewTask } from '../types'
+import type { CleanViewChecklist, CleanViewMode, CleanViewPhase, CleanViewTask } from '../types'
 
 type Engine = EngineInterface
 
 const PLAN_TOOL = 'mcp__clean-view__plan_steps'
 const PROGRESS_TOOL = 'mcp__clean-view__report_progress'
-const STORE_KEY = 'cleanViewEnabled'
+const STORE_KEY = 'cleanViewMode'
+/** The on/off value saved before the both mode existed. */
+const LEGACY_STORE_KEY = 'cleanViewEnabled'
 const SECTION_ID = 'clean-view:checklist'
 
 const MAX_NAME = 40
@@ -66,7 +68,27 @@ const EMPTY: CleanViewChecklist = {
   isPlanned: false,
 }
 
-const enabled = atom({ plugin: 'clean-view', key: 'cleanViewEnabled' } as const, true)
+const MODES: readonly CleanViewMode[] = ['on', 'both', 'off']
+
+const MODE_LABEL: Record<CleanViewMode, string> = {
+  on: '● Clean View: ON',
+  both: '◐ Clean View: BOTH',
+  off: '○ Clean View: OFF',
+}
+
+const MODE_TOAST: Record<CleanViewMode, string> = {
+  on: 'Clean View is on. Technical details are hidden.',
+  both: 'Clean View is on. You see the checklist and every detail.',
+  off: 'Clean View is off. You see every detail again.',
+}
+
+const MODE_REPLY: Record<CleanViewMode, string> = {
+  on: 'Clean View is on.',
+  both: 'Clean View is on, with every detail shown.',
+  off: 'Clean View is off.',
+}
+
+const mode = atom({ plugin: 'clean-view', key: 'mode' } as const, 'on' as CleanViewMode)
 const checklist = atom({ plugin: 'clean-view', key: 'checklist' } as const, EMPTY)
 const tick = atom({ plugin: 'clean-view', key: 'tick' } as const, 0)
 
@@ -119,6 +141,24 @@ function clampPercent(value: unknown): number {
   const number = Number(value)
 
   return Number.isFinite(number) ? Math.min(100, Math.max(0, Math.round(number))) : 0
+}
+
+function isMode(value: unknown): value is CleanViewMode {
+  return MODES.includes(value as CleanViewMode)
+}
+
+function nextMode(current: CleanViewMode): CleanViewMode {
+  return MODES[(MODES.indexOf(current) + 1) % MODES.length]!
+}
+
+/** The checklist runs in `on` and `both`. */
+async function isTracking($: Engine): Promise<boolean> {
+  return (await read($, mode)) !== 'off'
+}
+
+/** Tool rows are hidden only in `on`; `both` keeps them next to the checklist. */
+async function isHiding($: Engine): Promise<boolean> {
+  return (await read($, mode)) === 'on'
 }
 
 function isRunning(phase: CleanViewPhase): boolean {
@@ -355,10 +395,22 @@ async function resume($: Engine): Promise<void> {
   )
 }
 
-async function setEnabled($: Engine, value: boolean): Promise<void> {
-  await update($, enabled, () => value)
+async function setMode($: Engine, value: CleanViewMode): Promise<void> {
+  await update($, mode, () => value)
   await $.store.set(STORE_KEY, value)
-  $.ui.toast(value ? 'Clean View is on. Technical details are hidden.' : 'Clean View is off. You see every detail again.')
+  $.ui.toast(MODE_TOAST[value])
+}
+
+async function storedMode($: Engine): Promise<CleanViewMode> {
+  const stored = await $.store.get(STORE_KEY)
+
+  if (isMode(stored)) {
+    return stored
+  }
+
+  const legacy = await $.store.get(LEGACY_STORE_KEY)
+
+  return legacy === false ? 'off' : 'on'
 }
 
 async function planSteps($: Engine, input: Record<string, unknown>) {
@@ -483,19 +535,13 @@ async function trackOutcome($: Engine, ran: { deny?: string; isError?: true; tex
 
 async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>) {
   const { Box, Text, Button } = $.ui.resolve(e)
-  const isOn = await read($, enabled)
+  const current = await read($, mode)
   const list = await read($, checklist)
   const frame = await read($, tick)
   const now = await $.clock.now()
   const width = Math.max(20, e.props.bodyColumns)
 
-  const toggle = (
-    <Button
-      key="toggle"
-      label={isOn ? '● Clean View: ON' : '○ Clean View: OFF'}
-      onPress={() => setEnabled($, !isOn)}
-    />
-  )
+  const toggle = <Button key="toggle" label={MODE_LABEL[current]} onPress={() => setMode($, nextMode(current))} />
   const headerRow = (left: RenderElement | null) => (
     <Box key="header" flexDirection="row" justifyContent="space-between" width={width}>
       <Box flexShrink={1}>{left ?? <Text> </Text>}</Box>
@@ -503,7 +549,7 @@ async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>) {
     </Box>
   )
 
-  if (!isOn || list.phase === 'idle') {
+  if (current === 'off' || list.phase === 'idle') {
     return <Box flexDirection="column">{headerRow(null)}</Box>
   }
 
@@ -637,12 +683,12 @@ export function registerCleanView(on: On): void {
     })
     await $.command.register({
       name: 'simple',
-      description: 'Turn Clean View on or off (no argument flips it)',
-      argumentHint: 'on|off',
+      description: 'Set Clean View: on hides details, both shows details and the checklist, off (no argument cycles)',
+      argumentHint: 'on|both|off',
     })
 
-    const stored = await $.store.get(STORE_KEY)
-    await update($, enabled, () => (typeof stored === 'boolean' ? stored : true))
+    const stored = await storedMode($)
+    await update($, mode, () => stored)
     syncClock($, await read($, checklist))
 
     return next(e)
@@ -651,20 +697,20 @@ export function registerCleanView(on: On): void {
   on('command.run', { command: 'simple' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
 
-    if (arg !== '' && arg !== 'on' && arg !== 'off') {
-      return { text: 'Use /simple on, /simple off, or /simple to flip it.' }
+    if (arg !== '' && !isMode(arg)) {
+      return { text: 'Use /simple on, /simple both, /simple off, or /simple to go to the next mode.' }
     }
 
-    const value = arg === '' ? !(await read($, enabled)) : arg === 'on'
-    await setEnabled($, value)
+    const value = arg === '' ? nextMode(await read($, mode)) : arg
+    await setMode($, value)
 
-    return { text: value ? 'Clean View is on.' : 'Clean View is off.' }
+    return { text: MODE_REPLY[value] }
   })
 
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
 
-    if (!(await read($, enabled))) {
+    if (!(await isTracking($))) {
       return composed
     }
 
@@ -690,7 +736,7 @@ export function registerCleanView(on: On): void {
 
     const started = await startJob($, FALLBACK_NAME)
 
-    if (await read($, enabled)) {
+    if (await isTracking($)) {
       void nameJob($, text, started.startedAt)
     }
 
@@ -702,7 +748,7 @@ export function registerCleanView(on: On): void {
     const input = e as unknown as Record<string, unknown>
     const isMain = e.agentId === undefined
 
-    if (isMain && !ALWAYS_ALLOWED.has(tool) && (await read($, enabled)) && !(await read($, checklist)).isPlanned) {
+    if (isMain && !ALWAYS_ALLOWED.has(tool) && (await isTracking($)) && !(await read($, checklist)).isPlanned) {
       return { deny: GATE_MESSAGE }
     }
 
@@ -807,23 +853,23 @@ export function registerCleanView(on: On): void {
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     const { Box } = $.ui.resolve(e)
 
-    return (await read($, enabled)) ? <Box display="none" /> : next(e)
+    return (await isHiding($)) ? <Box display="none" /> : next(e)
   })
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     const { Box } = $.ui.resolve(e)
 
-    return (await read($, enabled)) ? <Box display="none" /> : next(e)
+    return (await isHiding($)) ? <Box display="none" /> : next(e)
   })
 
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     const { Box } = $.ui.resolve(e)
 
-    return (await read($, enabled)) ? <Box display="none" /> : next(e)
+    return (await isHiding($)) ? <Box display="none" /> : next(e)
   })
 
   on('ui.render', { component: 'ToolProgress' }, async ($, e, next) =>
-    (await read($, enabled)) ? next({ ...e, props: { ...e.props, hint: '' } }) : next(e),
+    (await isHiding($)) ? next({ ...e, props: { ...e.props, hint: '' } }) : next(e),
   )
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
