@@ -34,10 +34,15 @@ const HINT_PROPS = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
 
 type Calls = { configSets: { key: string; value: unknown }[]; commands: { command: string; args: string }[]; toasts: string[] }
 
-/** Answers what the engine would answer beneath the plugin. */
-async function boot($: Engine, on: On, modelId = 'claude-opus-5-5'): Promise<Calls> {
+type Start = { store?: Record<string, unknown>; isClear?: boolean }
+
+/**
+ * Answers what the engine would answer beneath the plugin. With `isClear`, the
+ * session is as after a /clear: empty state, the saved store, and no start event.
+ */
+async function boot($: Engine, on: On, modelId = 'claude-opus-5-5', start: Start = {}): Promise<Calls> {
   const calls: Calls = { configSets: [], commands: [], toasts: [] }
-  mock.store(on)
+  mock.store(on, start.store)
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('config.list', () => ({ value: [MODEL_ROW] }))
@@ -63,7 +68,9 @@ async function boot($: Engine, on: On, modelId = 'claude-opus-5-5'): Promise<Cal
 
     return <Box key="engine" />
   })
-  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  if (start.isClear !== true) {
+    await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  }
 
   return calls
 }
@@ -145,6 +152,14 @@ test('a click on Low runs /effort low and highlights Low', async ($, on) => {
   expect(calls.commands).toContainEqual({ command: 'effort', args: 'low' })
   expect(calls.toasts).toContain('Effort changed to Low')
   expect((await ui.find({ key: 'effort-low-chip' }))?.props.backgroundColor).toBeDefined()
+  await ui.unmount()
+})
+
+test('after a /clear the panel opens and highlights the saved effort', async ($, on) => {
+  await boot($, on, 'claude-opus-5-5', { store: { isOpen: true, effort: 'high' }, isClear: true })
+  const ui = await $.ui.mount(band('terminal'))
+  expect((await ui.find({ key: 'effort-high-chip' }))?.props.backgroundColor).toBeDefined()
+  expect((await ui.find({ key: 'effort-low-chip' }))?.props.backgroundColor).toBeUndefined()
   await ui.unmount()
 })
 

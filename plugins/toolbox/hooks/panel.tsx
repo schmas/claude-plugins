@@ -31,8 +31,10 @@ const EFFORT_STORE_KEY = 'effort'
 const LABEL_WIDTH = 10
 const PANEL_WIDTH = 78
 
-const isOpen = atom({ plugin: 'toolbox', key: 'isOpen' } as const, false)
-const effort = atom({ plugin: 'toolbox', key: 'effort' } as const, null as ToolboxEffort | null)
+const IS_OPEN = { plugin: 'toolbox', key: 'isOpen' } as const
+const EFFORT = { plugin: 'toolbox', key: 'effort' } as const
+const isOpen = atom(IS_OPEN, false)
+const effort = atom(EFFORT, null as ToolboxEffort | null)
 const sync = atom({ plugin: 'toolbox', key: 'sync' } as const, 0)
 const press = atom({ plugin: 'toolbox', key: 'press' } as const, null)
 
@@ -46,6 +48,27 @@ let launches: ToolboxLaunch[] = []
 
 async function redraw($: Engine): Promise<void> {
   await update($, sync, n => (n ?? 0) + 1)
+}
+
+// A /clear starts the session's state over, and no event this mod can count on
+// fires after it. So a value not written yet this session comes from the store.
+
+async function openNow($: Engine): Promise<boolean> {
+  const { value } = await $.state.get(IS_OPEN)
+
+  return value === undefined ? (await $.store.get(STORE_KEY)) === true : value
+}
+
+async function effortNow($: Engine): Promise<ToolboxEffort | null> {
+  const { value } = await $.state.get(EFFORT)
+
+  if (value !== undefined && value !== null) {
+    return value
+  }
+
+  const stored = await $.store.get(EFFORT_STORE_KEY)
+
+  return isEffort(stored) ? stored : null
 }
 
 async function setOpen($: Engine, value: boolean): Promise<void> {
@@ -88,7 +111,7 @@ async function pressAddon($: Engine, id: string, value: ToolboxSetting['value'] 
 async function drawPanel($: Engine, e: RenderInput<'AbovePrompt'>): Promise<RenderElement> {
   const { Box, Text, Button } = $.ui.resolve(e)
   await read($, sync)
-  const level = await read($, effort)
+  const level = await effortNow($)
   const rows = await $.config.list()
   const modelId = await $.session.model()
   const models = modelChoices(rows.find(row => row.key === 'model'))
@@ -228,7 +251,7 @@ export function registerPanel(on: On): void {
     try {
       void (async () => {
         try {
-          await setOpen($, !(await read($, isOpen)))
+          await setOpen($, !(await openNow($)))
         } catch (error) {
           $.ui.toast(`Toolbox could not toggle: ${String(error)}`)
         }
@@ -272,7 +295,7 @@ export function registerPanel(on: On): void {
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const { Box, Button } = $.ui.resolve(e)
-    const open = await read($, isOpen)
+    const open = await openNow($)
     const beneath = await next(e)
     const button = <Button key="toolbox" plain label={buttonLabel(open)} onPress={() => setOpen($, !open)} />
 
@@ -295,7 +318,7 @@ export function registerPanel(on: On): void {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || !(await read($, isOpen))) {
+    if (e.props.hasSurvey || !(await openNow($))) {
       return next(e)
     }
 
