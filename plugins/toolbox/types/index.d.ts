@@ -1,6 +1,9 @@
 /** A reasoning effort level, as `/effort` takes it. */
 export type ToolboxEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+/** Where the Toolbox button sits: the band above the prompt, or the hint line under it. */
+export type ToolboxPosition = 'AbovePrompt' | 'PromptHint'
+
 export type ToolboxSettingValue = boolean | string
 
 /**
@@ -63,6 +66,8 @@ declare module 'claude-code' {
       isOpen: boolean
       /** The main loop's effort as last seen; null until known. */
       effort: ToolboxEffort | null
+      /** Where the button sits; the person picks it under SETTINGS. */
+      position: ToolboxPosition
       /** Bumped to redraw after a change Toolbox cannot subscribe to. */
       sync: number
       /** The last add-on row or button pressed. */

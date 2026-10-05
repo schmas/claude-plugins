@@ -109,8 +109,66 @@ test('/toolbox opens and closes the panel', async ($, on) => {
   await ui.unmount()
 })
 
-test('the button under the prompt toggles the panel', async ($, on) => {
+/** The keys of the band's top-level rows, in order. */
+async function bandRows(ui: { find: (query: { type: string }) => Promise<{ children: unknown[] } | undefined> }) {
+  const root = await ui.find({ type: 'Box' })
+
+  return (root?.children ?? []).map(child => (child as { props?: { key?: string } }).props?.key)
+}
+
+test('by default the button is the last row above the prompt and toggles the panel', async ($, on) => {
   await boot($, on)
+
+  for (const surface of SURFACES) {
+    const hintUi = await $.ui.mount(hint(surface))
+    expect(await hintUi.find({ key: 'toolbox' })).toBeUndefined()
+    const bandUi = await $.ui.mount(band(surface))
+    expect((await bandUi.find({ key: 'toolbox' }))?.text).toContain('Toolbox')
+    expect((await bandRows(bandUi)).at(-1)).toBe('button-row')
+
+    await bandUi.press({ key: 'toolbox' })
+    expect(await bandUi.find({ key: 'model-opus' })).toBeDefined()
+    expect((await bandRows(bandUi)).slice(-2)).toEqual(['panel-row', 'button-row'])
+
+    await bandUi.press({ key: 'toolbox' })
+    expect(await bandUi.find({ key: 'model-opus' })).toBeUndefined()
+    await bandUi.unmount()
+    await hintUi.unmount()
+  }
+})
+
+test('the position setting moves the button under the prompt and back', async ($, on) => {
+  await boot($, on)
+  await $.command.run(TOOLBOX)
+  const bandUi = await $.ui.mount(band('terminal'))
+  const hintUi = await $.ui.mount(hint('terminal'))
+  expect((await bandUi.find({ key: 'set-toolbox.position' }))?.text).toContain('Above prompt')
+
+  await bandUi.press({ key: 'set-toolbox.position' })
+  expect((await bandUi.find({ key: 'set-toolbox.position' }))?.text).toContain('Under prompt')
+  expect(await bandUi.find({ key: 'button-row' })).toBeUndefined()
+  expect((await bandRows(bandUi)).at(-1)).toBe('panel-row')
+  expect((await hintUi.find({ key: 'toolbox' }))?.text).toContain('Toolbox')
+
+  await bandUi.press({ key: 'set-toolbox.position' })
+  expect(await bandUi.find({ key: 'button-row' })).toBeDefined()
+  expect(await hintUi.find({ key: 'toolbox' })).toBeUndefined()
+  await hintUi.unmount()
+  await bandUi.unmount()
+})
+
+test('after a /clear the button stays where the person put it', async ($, on) => {
+  await boot($, on, 'claude-opus-5-5', { store: { position: 'PromptHint' }, isClear: true })
+  const hintUi = await $.ui.mount(hint('terminal'))
+  const bandUi = await $.ui.mount(band('terminal'))
+  expect(await hintUi.find({ key: 'toolbox' })).toBeDefined()
+  expect(await bandUi.find({ key: 'toolbox' })).toBeUndefined()
+  await bandUi.unmount()
+  await hintUi.unmount()
+})
+
+test('with the button under the prompt it toggles the panel', async ($, on) => {
+  await boot($, on, 'claude-opus-5-5', { store: { position: 'PromptHint' } })
 
   for (const surface of SURFACES) {
     const hintUi = await $.ui.mount(hint(surface))
@@ -163,11 +221,12 @@ test('after a /clear the panel opens and highlights the saved effort', async ($,
   await ui.unmount()
 })
 
-test('empty SETTINGS and LAUNCH sections are hidden', async ($, on) => {
+test('SETTINGS holds the button position and an empty LAUNCH is hidden', async ($, on) => {
   await boot($, on)
   await $.command.run(TOOLBOX)
   const ui = await $.ui.mount(band('terminal'))
-  expect(await ui.find({ text: /S E T T I N G S/ })).toBeUndefined()
+  expect(await ui.find({ text: /S E T T I N G S/ })).toBeDefined()
+  expect(await ui.find({ text: /Toolbox button/ })).toBeDefined()
   expect(await ui.find({ text: /L A U N C H/ })).toBeUndefined()
   await ui.unmount()
 })

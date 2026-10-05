@@ -1,4 +1,4 @@
-import type { ToolboxEffort, ToolboxSetting, ToolboxSettingValue } from '../types'
+import type { ToolboxEffort, ToolboxPosition, ToolboxSetting, ToolboxSettingValue } from '../types'
 
 export type ModelChoice = { alias: string; label: string }
 
@@ -114,6 +114,38 @@ export function controlText(setting: Pick<ToolboxSetting, 'kind'>, value: Toolbo
   }
 
   return String(value)
+}
+
+export const DEFAULT_POSITION: ToolboxPosition = 'AbovePrompt'
+
+export const POSITION_SETTING_ID = 'toolbox.position'
+
+const POSITION_LABELS: Record<ToolboxPosition, string> = {
+  AbovePrompt: 'Above prompt',
+  PromptHint: 'Under prompt',
+}
+
+export function isPosition(value: unknown): value is ToolboxPosition {
+  return value === 'AbovePrompt' || value === 'PromptHint'
+}
+
+/** Toolbox's own row under SETTINGS: where the button sits. */
+export function positionSetting(position: ToolboxPosition): ToolboxSetting {
+  return {
+    id: POSITION_SETTING_ID,
+    label: 'Toolbox button',
+    hint: 'where it sits',
+    kind: 'choice',
+    options: Object.values(POSITION_LABELS),
+    value: POSITION_LABELS[position],
+  }
+}
+
+/** The position a row label like `Under prompt` names. */
+export function positionFromLabel(label: ToolboxSettingValue): ToolboxPosition {
+  const found = (Object.keys(POSITION_LABELS) as ToolboxPosition[]).find(one => POSITION_LABELS[one] === label)
+
+  return found ?? DEFAULT_POSITION
 }
 
 export function buttonLabel(isOpen: boolean): string {

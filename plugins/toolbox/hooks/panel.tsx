@@ -1,17 +1,22 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, RenderElement, RenderInput } from 'claude-code'
 
-import type { ToolboxEffort, ToolboxLaunch, ToolboxSetting } from '../types'
+import type { ToolboxEffort, ToolboxLaunch, ToolboxPosition, ToolboxSetting } from '../types'
 import {
+  DEFAULT_POSITION,
   EFFORTS,
+  POSITION_SETTING_ID,
   activeModel,
   buttonLabel,
   controlText,
   isEffort,
   isOn,
+  isPosition,
   modelChoices,
   nextValue,
   parseEffortArg,
+  positionFromLabel,
+  positionSetting,
   spaced,
   summary,
   upsert,
@@ -28,6 +33,7 @@ const GRAY = '#555555'
 const SHADOW = '#3A3A3A'
 const STORE_KEY = 'isOpen'
 const EFFORT_STORE_KEY = 'effort'
+const POSITION_STORE_KEY = 'position'
 const LABEL_WIDTH = 10
 const PANEL_WIDTH = 78
 
@@ -35,6 +41,8 @@ const IS_OPEN = { plugin: 'toolbox', key: 'isOpen' } as const
 const EFFORT = { plugin: 'toolbox', key: 'effort' } as const
 const isOpen = atom(IS_OPEN, false)
 const effort = atom(EFFORT, null as ToolboxEffort | null)
+const POSITION = { plugin: 'toolbox', key: 'position' } as const
+const position = atom(POSITION, DEFAULT_POSITION as ToolboxPosition)
 const sync = atom({ plugin: 'toolbox', key: 'sync' } as const, 0)
 const press = atom({ plugin: 'toolbox', key: 'press' } as const, null)
 
@@ -69,6 +77,23 @@ async function effortNow($: Engine): Promise<ToolboxEffort | null> {
   const stored = await $.store.get(EFFORT_STORE_KEY)
 
   return isEffort(stored) ? stored : null
+}
+
+async function positionNow($: Engine): Promise<ToolboxPosition> {
+  const { value } = await $.state.get(POSITION)
+
+  if (value !== undefined) {
+    return value
+  }
+
+  const stored = await $.store.get(POSITION_STORE_KEY)
+
+  return isPosition(stored) ? stored : DEFAULT_POSITION
+}
+
+async function setPosition($: Engine, value: ToolboxPosition): Promise<void> {
+  await update($, position, () => value)
+  await $.store.set(POSITION_STORE_KEY, value)
 }
 
 async function setOpen($: Engine, value: boolean): Promise<void> {
@@ -106,6 +131,13 @@ async function chooseEffort($: Engine, choice: EffortChoice): Promise<void> {
 async function pressAddon($: Engine, id: string, value: ToolboxSetting['value'] | null): Promise<void> {
   await update($, press, last => ({ id, value, count: (last?.count ?? 0) + 1 }))
   await redraw($)
+}
+
+async function drawButton($: Engine, e: RenderInput<'AbovePrompt' | 'PromptHint'>): Promise<RenderElement> {
+  const { Button } = $.ui.resolve(e)
+  const open = await openNow($)
+
+  return <Button key="toolbox" plain label={buttonLabel(open)} onPress={() => setOpen($, !open)} />
 }
 
 async function drawPanel($: Engine, e: RenderInput<'AbovePrompt'>): Promise<RenderElement> {
@@ -147,9 +179,12 @@ async function drawPanel($: Engine, e: RenderInput<'AbovePrompt'>): Promise<Rend
 
   const settingRows: RenderElement[] = []
 
-  for (const setting of settings) {
+  for (const setting of [positionSetting(await positionNow($)), ...settings]) {
     const { value } = setting
-    const onPress = () => pressAddon($, setting.id, nextValue(setting, value))
+    const onPress = () =>
+      setting.id === POSITION_SETTING_ID
+        ? setPosition($, positionFromLabel(nextValue(setting, value)))
+        : pressAddon($, setting.id, nextValue(setting, value))
     const control =
       setting.kind === 'toggle' && value !== true ? (
         <Button key={`set-${setting.id}`} plain dimColor label={` ${controlText(setting, value)} `} onPress={onPress} />
@@ -175,7 +210,7 @@ async function drawPanel($: Engine, e: RenderInput<'AbovePrompt'>): Promise<Rend
   )
 
   return (
-    <Box key="toolbox" flexDirection="column" borderStyle="round" borderColor={ORANGE} paddingLeft={1} paddingRight={1} width={width}>
+    <Box key="toolbox-panel" flexDirection="column" borderStyle="round" borderColor={ORANGE} paddingLeft={1} paddingRight={1} width={width}>
       <Box flexDirection="row" justifyContent="space-between">
         <Text bold color={ORANGE}>
           ◆  {spaced('Toolbox')}
@@ -234,6 +269,8 @@ export function registerPanel(on: On): void {
     await $.command.register({ name: 'toolbox', description: 'Open or close the Toolbox panel' })
     const stored = await $.store.get(STORE_KEY)
     await update($, isOpen, () => stored === true)
+    const storedPosition = await $.store.get(POSITION_STORE_KEY)
+    await update($, position, () => (isPosition(storedPosition) ? storedPosition : DEFAULT_POSITION))
     const storedEffort = await $.store.get(EFFORT_STORE_KEY)
 
     if ((await read($, effort)) === null && isEffort(storedEffort)) {
@@ -294,10 +331,12 @@ export function registerPanel(on: On): void {
   })
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const { Box, Button } = $.ui.resolve(e)
-    const open = await openNow($)
+    if ((await positionNow($)) !== 'PromptHint') {
+      return next(e)
+    }
+
+    const { Box } = $.ui.resolve(e)
     const beneath = await next(e)
-    const button = <Button key="toolbox" plain label={buttonLabel(open)} onPress={() => setOpen($, !open)} />
 
     return (
       // The engine's own line may not sit under a Box with a set width: the
@@ -306,37 +345,45 @@ export function registerPanel(on: On): void {
         <Box flexGrow={1} flexShrink={1}>
           {beneath}
         </Box>
-        {open ? (
-          <Box flexShrink={0}>{button}</Box>
-        ) : (
-          <Box flexShrink={0}>
-            {button}
-          </Box>
-        )}
+        <Box flexShrink={0}>{await drawButton($, e)}</Box>
       </Box>
     )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || !(await openNow($))) {
+    if (e.props.hasSurvey) {
+      return next(e)
+    }
+
+    const open = await openNow($)
+    const hasButton = (await positionNow($)) === 'AbovePrompt'
+
+    if (!open && !hasButton) {
       return next(e)
     }
 
     const { Box } = $.ui.resolve(e)
     // Mods beneath draw first: an add-on may send its row while it draws.
     const beneath = await next(e)
-    const panel = await drawPanel($, e)
+    const panel = open ? await drawPanel($, e) : null
 
-    // The band cannot paint over the transcript, so the panel takes its own
-    // rows at the right end, above whatever the mods beneath draw.
-    // Only the panel's row has a set width: the engine refuses its own node
+    // The band cannot paint over the transcript, so the panel and the button
+    // take their own rows at the right end, last, next to the prompt.
+    // Only those rows have a set width: the engine refuses its own node
     // under a Box with one, and `beneath` may hold that node.
     return (
       <Box flexDirection="column">
-        <Box flexDirection="row" justifyContent="flex-end" width={e.props.bodyColumns}>
-          {panel}
-        </Box>
         {beneath}
+        {panel === null ? null : (
+          <Box key="panel-row" flexDirection="row" justifyContent="flex-end" width={e.props.bodyColumns}>
+            {panel}
+          </Box>
+        )}
+        {hasButton ? (
+          <Box key="button-row" flexDirection="row" justifyContent="flex-end" width={e.props.bodyColumns}>
+            {await drawButton($, e)}
+          </Box>
+        ) : null}
       </Box>
     )
   })
