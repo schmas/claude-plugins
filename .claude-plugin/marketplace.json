@@ -9,7 +9,7 @@
       "name": "clean-view",
       "source": "./plugins/clean-view",
       "description": "Clean View mod: a calm, non-technical view of Claude Code. Hides tool calls, diffs and command output, and shows one plain-English checklist with progress meters above the prompt. Three modes: on (hide details), both (details plus checklist), off. Switch with the band button or /simple on|both|off. With the Toolbox mod installed, the switch moves into the Toolbox panel.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "category": "ui",
       "tags": ["mod", "function-hooks", "ui", "checklist", "progress", "non-technical"]
     },

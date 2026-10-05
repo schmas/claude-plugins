@@ -89,9 +89,11 @@ test('a to-do list plus a 60% report draws done, active, next and up next rows',
     const active = await ui.find({ key: 'row-todo-2' })
     const next = await ui.find({ key: 'row-todo-3' })
     const later = await ui.find({ key: 'row-todo-4' })
-    expect(done?.text).toMatch(/✓.*Read your brand notes.*██████████.*Done/)
-    expect(active?.text).toMatch(/▶.*Build the pricing section.*██████░░░░.*60%/)
-    expect(next?.text).toMatch(/Add the contact form.*░{10}.*Next/)
+    expect(done?.text).toMatch(/✓.*Read your brand notes.*■{16}.*Done/)
+    expect(active?.text).toMatch(/●.*Build the pricing section.*■{16}.*60%/)
+    expect(next?.text).toMatch(/Add the contact form.*■{16}.*Next/)
+    // One step done and the active one 60% along: 1.6 of 4 steps.
+    expect((await ui.find({ key: 'overall' }))?.text).toMatch(/^Step 2 of 4 .*40%$/)
     expect(next?.text).not.toMatch(/Up next/)
     expect(later?.text).toMatch(/Polish the footer.*Up next/)
     expect(await ui.find({ key: 'toggle' })).toBeDefined()
@@ -138,7 +140,7 @@ test('plan_steps then report_progress at 100 checks off step one and starts step
 
   const ui = await $.ui.mount(band('terminal'))
   expect((await ui.find({ key: 'row-step-1' }))?.text).toMatch(/✓.*Done/)
-  expect((await ui.find({ key: 'row-step-2' }))?.text).toMatch(/▶.*Build the pricing section.*Working/)
+  expect((await ui.find({ key: 'row-step-2' }))?.text).toMatch(/●.*Build the pricing section.*Working/)
   expect((await ui.find({ key: 'row-step-3' }))?.text).toMatch(/Next/)
   await ui.unmount()
 })
@@ -306,5 +308,25 @@ test('after a /clear the Toolbox row shows the saved mode', { plugins: [FAKE_TOO
   await band.unmount()
   const ui = await $.ui.mount({ plugin: 'toolbox', surface: 'terminal', component: 'PromptHint', props: { isDraft: false, isWorking: false, hint: '' } })
   expect((await ui.find({ type: 'Text', text: /^Clean View: / }))?.text).toBe('Clean View: Both')
+  await ui.unmount()
+})
+
+
+test('the mode buttons in the band header switch the mode', async ($, on) => {
+  await boot($, on)
+  await $.turn.start({ text: 'Build my landing page', turnId: 't1' })
+
+  const ui = await $.ui.mount(band('terminal'))
+  expect((await ui.find({ key: 'mode-on' }))?.props.label).toBe('[On]')
+  expect((await ui.find({ key: 'mode-both' }))?.props.label).toBe(' Both ')
+  expect((await ui.find({ key: 'mode-off' }))?.props.label).toBe(' Off ')
+
+  await ui.press({ key: 'mode-both' })
+  expect((await ui.find({ key: 'mode-both' }))?.props.label).toBe('[Both]')
+  expect((await ui.find({ key: 'toggle' }))?.props.label).toBe('◐ Clean View: BOTH')
+
+  await ui.press({ key: 'mode-off' })
+  expect(await ui.find({ key: 'mode-off' })).toBeUndefined()
+  expect((await ui.find({ key: 'toggle' }))?.props.label).toBe('○ Clean View: OFF')
   await ui.unmount()
 })

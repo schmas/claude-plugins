@@ -14,7 +14,7 @@ const SECTION_ID = 'clean-view:checklist'
 
 const MAX_NAME = 40
 const FALLBACK_NAME = 'Working on it'
-const METER_CELLS = 10
+const METER_CELLS = 16
 const FRAME_MS = 250
 const COLLAPSE_MS = 5000
 const FAIL_LIMIT = 3
@@ -302,28 +302,142 @@ function padEnd(text: string, width: number): string {
   return text + ' '.repeat(width - chars.length)
 }
 
-function meter(one: CleanViewTask, frame: number): string {
+type Stops = readonly string[]
+
+const PINK = '#ff4f8b'
+const TITLE_STOPS: Stops = ['#ff8a3d', '#ff4f8b', '#c86bfa', '#7aa2ff']
+const OVERALL_STOPS: Stops = ['#ff8a3d', '#ff4f8b']
+const DONE_STOPS: Stops = ['#1e8f4e', '#6ee7a0']
+const ACTIVE_STOPS: Stops = ['#8a2f5a', '#ff6fb0']
+const GRADIENT_STEPS = 8
+const SHIMMER_CELLS = 6
+/** The empty part of a bar: a dark gray box, just above the terminal background. */
+const TRACK = '#2a2a31'
+/** One bar cell. The box is narrower than the cell, so each step shows as its own box. */
+const BOX = '■'
+
+const BORDER: Record<CleanViewPhase, string> = {
+  idle: PINK,
+  working: PINK,
+  needsYou: 'yellow',
+  stuck: 'yellow',
+  stopped: 'red',
+  done: 'green',
+}
+
+function hex(color: string): number[] {
+  return [1, 3, 5].map(at => parseInt(color.slice(at, at + 2), 16))
+}
+
+/** The color at `t` (0 to 1) along evenly spaced stops. */
+export function blend(stops: Stops, t: number): string {
+  if (stops.length === 1) {
+    return stops[0]!
+  }
+
+  const at = Math.min(1, Math.max(0, t)) * (stops.length - 1)
+  const low = Math.min(stops.length - 2, Math.floor(at))
+  const from = hex(stops[low]!)
+  const to = hex(stops[low + 1]!)
+  const mix = at - low
+
+  return `#${from.map((one, i) => Math.round(one + (to[i]! - one) * mix).toString(16).padStart(2, '0')).join('')}`
+}
+
+type Cell = { char: string; color: string }
+
+/** Draws cells as Text runs, one run per color, so a long bar stays a few elements. */
+function cells($: Engine, e: RenderInput<'AbovePrompt'>, key: string, list: Cell[]): RenderElement {
+  const { Text } = $.ui.resolve(e)
+  const runs: Cell[] = []
+
+  for (const one of list) {
+    const last = runs[runs.length - 1]
+
+    if (last !== undefined && last.color === one.color) {
+      last.char += one.char
+    } else {
+      runs.push({ ...one })
+    }
+  }
+
+  return (
+    <Text key={key}>
+      {runs.map((run, at) => (
+        <Text key={`${key}-${at}`} color={run.color}>
+          {run.char}
+        </Text>
+      ))}
+    </Text>
+  )
+}
+
+/** `filled` gradient boxes, then dark track boxes, `width` in all. */
+function bar(width: number, filled: number, stops: Stops): Cell[] {
+  return Array.from({ length: width }, (_, at): Cell => {
+    if (at >= filled) {
+      return { char: BOX, color: TRACK }
+    }
+
+    const t = Math.round((filled <= 1 ? 1 : at / (filled - 1)) * (GRADIENT_STEPS - 1)) / (GRADIENT_STEPS - 1)
+
+    return { char: BOX, color: blend(stops, t) }
+  })
+}
+
+/** A short pink streak that runs along the track while a step has no percent yet. */
+function shimmer(width: number, frame: number): Cell[] {
+  const head = frame % (width + SHIMMER_CELLS)
+
+  return Array.from({ length: width }, (_, at): Cell => {
+    const behind = head - at
+
+    if (behind < 0 || behind >= SHIMMER_CELLS) {
+      return { char: BOX, color: TRACK }
+    }
+
+    return { char: BOX, color: blend(ACTIVE_STOPS, 1 - behind / (SHIMMER_CELLS - 1)) }
+  })
+}
+
+function meter(one: CleanViewTask, frame: number, width: number): Cell[] {
   if (one.status === 'done') {
-    return '█'.repeat(METER_CELLS)
+    return bar(width, width, DONE_STOPS)
   }
 
   if (one.status === 'upcoming') {
-    return '░'.repeat(METER_CELLS)
+    return bar(width, 0, DONE_STOPS)
   }
 
   if (!one.hasReported) {
-    const cells = Array.from({ length: METER_CELLS }, (_, at) => {
-      const distance = (at - (frame % (METER_CELLS + 3)) + METER_CELLS + 3) % (METER_CELLS + 3)
-
-      return distance < 3 ? '▓' : '░'
-    })
-
-    return cells.join('')
+    return shimmer(width, frame)
   }
 
-  const filled = Math.round(one.percent / 10)
+  return bar(width, Math.round((one.percent / 100) * width), ACTIVE_STOPS)
+}
 
-  return '█'.repeat(filled) + '░'.repeat(METER_CELLS - filled)
+/** Whole-job progress: done steps plus the active step's reported share. */
+export function overallPercent(tasks: readonly CleanViewTask[]): number {
+  if (tasks.length === 0) {
+    return 0
+  }
+
+  const share = tasks.reduce((sum, one) => {
+    if (one.status === 'done') {
+      return sum + 1
+    }
+
+    return one.status === 'active' && one.hasReported ? sum + one.percent / 100 : sum
+  }, 0)
+
+  return Math.round((share / tasks.length) * 100)
+}
+
+/** The step number the header names: the active step, or the count done when none is active. */
+function stepNumber(tasks: readonly CleanViewTask[]): number {
+  const active = tasks.findIndex(one => one.status === 'active')
+
+  return active >= 0 ? active + 1 : tasks.filter(one => one.status === 'done').length
 }
 
 let frameTimer: Timer | null = null
@@ -582,6 +696,22 @@ async function trackOutcome($: Engine, ran: { deny?: string; isError?: true; tex
   await change($, list => (list.phase === 'stuck' ? { ...list, phase: 'working', stuckReason: null } : list))
 }
 
+/** Colors each word of the title along the title gradient. */
+function gradientTitle($: Engine, e: RenderInput<'AbovePrompt'>, title: string): RenderElement {
+  const { Text } = $.ui.resolve(e)
+  const words = title.split(' ')
+
+  return (
+    <Text bold>
+      {words.map((word, at) => (
+        <Text key={`word-${at}`} color={blend(TITLE_STOPS, words.length <= 1 ? 0 : at / (words.length - 1))}>
+          {at === 0 ? word : ` ${word}`}
+        </Text>
+      ))}
+    </Text>
+  )
+}
+
 /** Draws the band; null when there is nothing to show. With Toolbox loaded, the mode switch lives in its panel. */
 async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>, hasToolbox: boolean): Promise<RenderElement | null> {
   const { Box, Text, Button } = $.ui.resolve(e)
@@ -589,95 +719,138 @@ async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>, hasToolbox: bo
   const list = await read($, checklist)
   const frame = await read($, tick)
   const now = await $.clock.now()
-  const width = Math.max(20, e.props.bodyColumns)
+  const width = Math.max(24, e.props.bodyColumns)
+  // The round border and one cell of padding on each side.
+  const inner = width - 4
 
   const toggle = hasToolbox ? null : (
-    <Button key="toggle" label={MODE_LABEL[current]} onPress={() => setMode($, nextMode(current))} />
-  )
-  const headerRow = (left: RenderElement | null) => (
-    <Box key="header" flexDirection="row" justifyContent="space-between" width={width}>
-      <Box flexShrink={1}>{left ?? <Text> </Text>}</Box>
-      {toggle}
+    <Box key="toggle-row" flexDirection="row" justifyContent="flex-end" width={width}>
+      <Button key="toggle" label={MODE_LABEL[current]} onPress={() => setMode($, nextMode(current))} />
     </Box>
   )
 
   if (current === 'off' || list.phase === 'idle') {
-    return hasToolbox ? null : <Box flexDirection="column">{headerRow(null)}</Box>
+    return toggle === null ? null : <Box flexDirection="column">{toggle}</Box>
   }
 
   const title = list.title || FALLBACK_NAME
   const runFor = elapsed((list.finishedAt ?? now) - (list.startedAt ?? now))
-  let header: RenderElement
+  let left: RenderElement
 
   switch (list.phase) {
     case 'needsYou':
-      header = (
+      left = (
         <Text wrap="truncate">
           <Text bold inverse color="yellow"> Needs you </Text> {list.needsYouReason ?? WAITING_REPLY}
         </Text>
       )
       break
     case 'stuck':
-      header = (
+      left = (
         <Text wrap="truncate" color="yellow">
           ⚠ Stuck: {list.stuckReason ?? KEEPS_FAILING}
         </Text>
       )
       break
     case 'stopped':
-      header = (
+      left = (
         <Text wrap="truncate">
           <Text color="red">■ Stopped</Text> · {title} · you pressed Esc
         </Text>
       )
       break
     case 'done':
-      header = (
+      left = (
         <Text wrap="truncate">
-          <Text color="green">✓ All done</Text> · {title} · took {runFor}
+          <Text color="green">✓ All done</Text> · {title}
         </Text>
       )
       break
     default:
-      header = (
+      left = (
         <Text wrap="truncate">
-          <Text bold>{title}</Text> · {runFor}
+          <Text color={PINK}>✶ </Text>
+          {gradientTitle($, e, title)}
         </Text>
       )
   }
 
+  // One button per mode; the current one is bracketed and full strength, the others dim.
+  const switches = MODES.map(one =>
+    one === current ? (
+      <Button key={`mode-${one}`} plain label={`[${MODE_CHOICE[one]}]`} onPress={() => setMode($, one)} />
+    ) : (
+      <Button key={`mode-${one}`} plain dimColor label={` ${MODE_CHOICE[one]} `} onPress={() => setMode($, one)} />
+    ),
+  )
+  const header = (
+    <Box key="header" flexDirection="row" justifyContent="space-between" width={inner}>
+      <Box flexShrink={1}>{left}</Box>
+      <Box key="header-right" flexDirection="row" flexShrink={0}>
+        {switches}
+        <Text dimColor> {runFor}</Text>
+      </Box>
+    </Box>
+  )
+  const frameBox = (children: RenderElement[]) => (
+    <Box key="frame" flexDirection="column" borderStyle="round" borderColor={BORDER[list.phase]} paddingX={1} width={width}>
+      {children}
+    </Box>
+  )
+
   if (list.phase === 'done' && list.isCollapsed) {
-    return <Box flexDirection="column">{headerRow(header)}</Box>
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        {toggle}
+        {frameBox([header])}
+      </Box>
+    )
   }
 
-  // icon (2) + name + gap (1) + meter (10) + gap (2) + label (7)
-  const nameWidth = Math.max(4, width - 2 - 1 - METER_CELLS - 2 - 7)
+  const total = list.tasks.length
+  const percent = overallPercent(list.tasks)
+  const stepLabel = `Step ${stepNumber(list.tasks)} of ${total} `
+  // label + bar + gap (1) + percent (4)
+  const overallWidth = Math.max(4, inner - stepLabel.length - 1 - 4)
+  const overall = (
+    <Box key="overall" flexDirection="row">
+      <Text>{stepLabel}</Text>
+      {cells($, e, 'overall-bar', bar(overallWidth, Math.round((percent / 100) * overallWidth), OVERALL_STOPS))}
+      <Text bold color={PINK}> {`${percent}%`.padStart(4)}</Text>
+    </Box>
+  )
+
+  // icon (2) + name + meter + gap (2) + label (7)
+  const meterWidth = Math.max(4, Math.min(METER_CELLS, inner - 2 - 12 - 2 - 7))
+  const nameWidth = Math.max(4, Math.min(MAX_NAME + 2, inner - 2 - meterWidth - 2 - 7))
   const firstUpcoming = list.tasks.findIndex(one => one.status === 'upcoming')
   const rows = list.tasks.map((one, at) => {
-    const name = padEnd(one.name, nameWidth)
-    const bar = meter(one, frame)
+    const name = `${padEnd(one.name, nameWidth - 1)} `
+    const track = cells($, e, `meter-${one.id}`, meter(one, frame, meterWidth))
 
     if (one.status === 'done') {
       return (
         <Box key={`row-${one.id}`} flexDirection="row">
           <Text color="green">✓ </Text>
-          <Text dimColor>{name} </Text>
-          <Text color="green">{bar}</Text>
-          <Text dimColor>  Done</Text>
+          <Text>{name}</Text>
+          {track}
+          <Text>  Done</Text>
         </Box>
       )
     }
 
     if (one.status === 'active') {
-      const icon = list.phase === 'needsYou' ? '‖ ' : '▶ '
-      const label = one.hasReported ? `${one.percent}%` : 'Working'
+      const isWaiting = list.phase === 'needsYou'
 
       return (
         <Box key={`row-${one.id}`} flexDirection="row">
-          <Text color="cyan">{icon}</Text>
-          <Text bold>{name} </Text>
-          <Text color="cyan">{bar}</Text>
-          <Text>  {label}</Text>
+          <Text color={isWaiting ? 'yellow' : PINK}>{isWaiting ? '‖ ' : '● '}</Text>
+          <Text bold>{name}</Text>
+          {track}
+          <Text bold color={PINK}>
+            {'  '}
+            {one.hasReported ? `${one.percent}%` : 'Working'}
+          </Text>
         </Box>
       )
     }
@@ -685,17 +858,17 @@ async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>, hasToolbox: bo
     return (
       <Box key={`row-${one.id}`} flexDirection="row">
         <Text dimColor>○ </Text>
-        <Text dimColor>{name} </Text>
-        <Text dimColor>{bar}</Text>
+        <Text dimColor>{name}</Text>
+        {track}
         <Text dimColor>  {at === firstUpcoming ? 'Next' : 'Up next'}</Text>
       </Box>
     )
   })
 
   return (
-    <Box flexDirection="column">
-      {headerRow(header)}
-      {rows}
+    <Box flexDirection="column" marginTop={1}>
+      {toggle}
+      {frameBox([header, overall, ...rows])}
     </Box>
   )
 }
