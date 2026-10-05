@@ -116,17 +116,17 @@ export function controlText(setting: Pick<ToolboxSetting, 'kind'>, value: Toolbo
   return String(value)
 }
 
-export const DEFAULT_POSITION: ToolboxPosition = 'AbovePrompt'
+export const DEFAULT_POSITION: ToolboxPosition = 'SessionMode'
 
 export const POSITION_SETTING_ID = 'toolbox.position'
 
 const POSITION_LABELS: Record<ToolboxPosition, string> = {
   AbovePrompt: 'Above prompt',
-  PromptHint: 'Under prompt',
+  SessionMode: 'In footer',
 }
 
 export function isPosition(value: unknown): value is ToolboxPosition {
-  return value === 'AbovePrompt' || value === 'PromptHint'
+  return value === 'AbovePrompt' || value === 'SessionMode'
 }
 
 /** Toolbox's own row under SETTINGS: where the button sits. */

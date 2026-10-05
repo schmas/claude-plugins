@@ -133,7 +133,7 @@ async function pressAddon($: Engine, id: string, value: ToolboxSetting['value'] 
   await redraw($)
 }
 
-async function drawButton($: Engine, e: RenderInput<'AbovePrompt' | 'PromptHint'>): Promise<RenderElement> {
+async function drawButton($: Engine, e: RenderInput<'AbovePrompt' | 'SessionMode'>): Promise<RenderElement> {
   const { Button } = $.ui.resolve(e)
   const open = await openNow($)
 
@@ -330,22 +330,21 @@ export function registerPanel(on: On): void {
     return yield* next(e)
   })
 
-  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    if ((await positionNow($)) !== 'PromptHint') {
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    if ((await positionNow($)) !== 'SessionMode') {
       return next(e)
     }
 
-    const { Box } = $.ui.resolve(e)
+    const { Box, Text } = $.ui.resolve(e)
     const beneath = await next(e)
 
+    // A plain label in `modes` cannot be pressed, so the button sits after the
+    // engine's own labels, joined the way the engine joins them.
     return (
-      // The engine's own line may not sit under a Box with a set width: the
-      // row stretches to the line instead, and the left part grows.
-      <Box flexDirection="row" flexGrow={1}>
-        <Box flexGrow={1} flexShrink={1}>
-          {beneath}
-        </Box>
-        <Box flexShrink={0}>{await drawButton($, e)}</Box>
+      <Box flexDirection="row">
+        {beneath}
+        {e.props.modes.length > 0 ? <Text dimColor> & </Text> : null}
+        {await drawButton($, e)}
       </Box>
     )
   })

@@ -1,8 +1,8 @@
 /** A reasoning effort level, as `/effort` takes it. */
 export type ToolboxEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
-/** Where the Toolbox button sits: the band above the prompt, or the hint line under it. */
-export type ToolboxPosition = 'AbovePrompt' | 'PromptHint'
+/** Where the Toolbox button sits: the band above the prompt, or the mode labels in the prompt footer. */
+export type ToolboxPosition = 'AbovePrompt' | 'SessionMode'
 
 export type ToolboxSettingValue = boolean | string
 
