@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine, Plugin } from 'claude-code/testing'
+import type { Engine, MockClock, Plugin } from 'claude-code/testing'
 import type { On, RenderElement } from 'claude-code'
 
 const PLUGIN = 'clean-view'
@@ -22,8 +22,8 @@ type Start = { store?: Record<string, unknown>; isClear?: boolean }
  * Answers what the engine would answer beneath the plugin. Register test hooks before calling it.
  * With `isClear`, the session is as after a /clear: empty state, the saved store, and no start event.
  */
-async function boot($: Engine, on: On, start: Start = {}): Promise<void> {
-  mock.clock(on, { now: 1_000_000 })
+async function boot($: Engine, on: On, start: Start = {}): Promise<MockClock> {
+  const clock = mock.clock(on, { now: 1_000_000 })
   mock.store(on, start.store)
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('tool.register', ($, e) => ({ value: { tool: `mcp__clean-view__${e.name}` } }))
@@ -43,6 +43,8 @@ async function boot($: Engine, on: On, start: Start = {}): Promise<void> {
   if (start.isClear !== true) {
     await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   }
+
+  return clock
 }
 
 function band<S extends (typeof SURFACES)[number]>(surface: S) {
@@ -328,5 +330,26 @@ test('the mode buttons in the band header switch the mode', async ($, on) => {
   await ui.press({ key: 'mode-off' })
   expect(await ui.find({ key: 'mode-off' })).toBeUndefined()
   expect((await ui.find({ key: 'toggle' }))?.props.label).toBe('○ Clean View: OFF')
+  await ui.unmount()
+})
+
+test('a finished list stays visible until Clear is pressed', async ($, on) => {
+  const clock = await boot($, on)
+  await $.turn.start({ text: 'Build my landing page', turnId: 't1' })
+  await $.tool.call({ tool: PLAN, steps: ['Read your brand notes', 'Build the pricing section'] })
+  await $.tool.call({ tool: PROGRESS, task: 'Read your brand notes', percent: 100 })
+  await $.tool.call({ tool: PROGRESS, task: 'Build the pricing section', percent: 100 })
+
+  const ui = await $.ui.mount(band('terminal'))
+  expect(await ui.find({ key: 'clear' })).toBeUndefined()
+
+  await $.turn.complete({ answer: 'Done', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer' })
+  await clock.advance(60_000)
+  expect(await ui.find({ text: /All done/ })).toBeDefined()
+  expect((await ui.find({ key: 'row-step-2' }))?.text).toMatch(/✓.*Build the pricing section.*Done/)
+
+  await ui.press({ key: 'clear' })
+  expect(await ui.find({ key: 'frame' })).toBeUndefined()
+  expect(await ui.find({ key: 'toggle' })).toBeDefined()
   await ui.unmount()
 })

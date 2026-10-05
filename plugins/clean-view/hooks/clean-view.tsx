@@ -16,7 +16,6 @@ const MAX_NAME = 40
 const FALLBACK_NAME = 'Working on it'
 const METER_CELLS = 16
 const FRAME_MS = 250
-const COLLAPSE_MS = 5000
 const FAIL_LIMIT = 3
 const MIN_STEPS = 2
 const MAX_STEPS = 8
@@ -64,7 +63,6 @@ const EMPTY: CleanViewChecklist = {
   stuckReason: null,
   startedAt: null,
   finishedAt: null,
-  isCollapsed: false,
   isPlanned: false,
 }
 
@@ -312,7 +310,7 @@ const ACTIVE_STOPS: Stops = ['#8a2f5a', '#ff6fb0']
 const GRADIENT_STEPS = 8
 const SHIMMER_CELLS = 6
 /** The empty part of a bar: a dark gray box, just above the terminal background. */
-const TRACK = '#2a2a31'
+const TRACK = '#1f1f25'
 /** One bar cell. The box is narrower than the cell, so each step shows as its own box. */
 const BOX = '■'
 
@@ -591,7 +589,6 @@ async function planSteps($: Engine, input: Record<string, unknown>) {
     stuckReason: list.phase === 'stuck' ? null : list.stuckReason,
     tasks: steps.map((name, at) => task(`step-${at + 1}`, name, at === 0 ? 'active' : 'upcoming')),
     isPlanned: true,
-    isCollapsed: false,
   }))
 
   return { result: `Planned ${steps.length} steps. The first one has started.` }
@@ -783,11 +780,16 @@ async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>, hasToolbox: bo
       <Button key={`mode-${one}`} plain dimColor label={` ${MODE_CHOICE[one]} `} onPress={() => setMode($, one)} />
     ),
   )
+  // A finished list stays until the next request or until this button clears it.
+  const clear = isRunning(list.phase) ? null : (
+    <Button key="clear" plain dimColor label=" ✕ Clear " onPress={() => change($, () => EMPTY)} />
+  )
   const header = (
     <Box key="header" flexDirection="row" justifyContent="space-between" width={inner}>
       <Box flexShrink={1}>{left}</Box>
       <Box key="header-right" flexDirection="row" flexShrink={0}>
         {switches}
+        {clear}
         <Text dimColor> {runFor}</Text>
       </Box>
     </Box>
@@ -797,15 +799,6 @@ async function drawBand($: Engine, e: RenderInput<'AbovePrompt'>, hasToolbox: bo
       {children}
     </Box>
   )
-
-  if (list.phase === 'done' && list.isCollapsed) {
-    return (
-      <Box flexDirection="column" marginTop={1}>
-        {toggle}
-        {frameBox([header])}
-      </Box>
-    )
-  }
 
   const total = list.tasks.length
   const percent = overallPercent(list.tasks)
@@ -1077,13 +1070,7 @@ export function registerCleanView(on: On): void {
         needsYouReason: null,
         stuckReason: null,
         finishedAt: now,
-        isCollapsed: false,
       }))
-      $.clock.after(COLLAPSE_MS, () => {
-        void update($, checklist, current =>
-          current.phase === 'done' && current.finishedAt === now ? { ...current, isCollapsed: true } : current,
-        )
-      })
     }
 
     return next(e)

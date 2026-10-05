@@ -21,7 +21,6 @@ export type CleanViewChecklist = {
   stuckReason: string | null
   startedAt: number | null
   finishedAt: number | null
-  isCollapsed: boolean
   /** True once Claude laid out a real plan (plan_steps or a to-do list). */
   isPlanned: boolean
 }
