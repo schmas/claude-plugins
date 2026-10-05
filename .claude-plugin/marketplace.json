@@ -12,6 +12,14 @@
       "version": "0.2.0",
       "category": "ui",
       "tags": ["mod", "function-hooks", "ui", "checklist", "progress", "non-technical"]
+    },
+    {
+      "name": "toolbox",
+      "source": "./plugins/toolbox",
+      "description": "Toolbox mod: an orange button under the prompt opens a panel to switch the session model and effort in one click. Other mods can add rows to it (Clean View adds its mode switch). Toggle with the button or /toolbox.",
+      "version": "0.1.0",
+      "category": "ui",
+      "tags": ["mod", "function-hooks", "ui", "model", "effort"]
     }
   ]
 }

@@ -1,0 +1,16 @@
+{
+  "name": "toolbox",
+  "version": "0.1.0",
+  "description": "Toolbox: an orange button that opens a panel to switch model and effort, with rows other mods can add.",
+  "author": {
+    "name": "schmas"
+  },
+  "keywords": [
+    "mod",
+    "ui",
+    "model",
+    "effort"
+  ],
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

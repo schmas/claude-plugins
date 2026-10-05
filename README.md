@@ -5,6 +5,7 @@ Public Claude Code plugins and mods by schmas.
 | Plugin | Scope | Contents |
 |---|---|---|
 | [`clean-view`](./plugins/clean-view) | Calm view for non-technical users (mod) | Hides tool calls, diffs and command output; shows one plain-English checklist with progress meters above the prompt. Three modes: `on` hides details, `both` shows details and the checklist, `off`. Switch with the band button or `/simple on\|both\|off` |
+| [`toolbox`](./plugins/toolbox) | Model and effort switcher (mod) | Orange **◆ Toolbox** button under the prompt opens a panel above it. One click sets the session model or effort. Other mods add rows to it through `$.toolbox`. Toggle with the button or `/toolbox` |
 
 ## Install
 
@@ -13,6 +14,7 @@ Add the marketplace once, then install the plugins you want.
 ```sh
 /plugin marketplace add schmas/claude-plugins
 /plugin install clean-view@schmas
+/plugin install toolbox@schmas
 /reload-plugins
 ```
 
@@ -21,12 +23,16 @@ Add the marketplace once, then install the plugins you want.
 ```
 claude-plugins/
 ├── .claude-plugin/
-│   └── marketplace.json        # Lists 1 plugin
+│   └── marketplace.json        # Lists 2 plugins
 ├── plugins/
-│   └── clean-view/
+│   ├── clean-view/
+│   │   ├── .claude-plugin/plugin.json
+│   │   ├── hooks/              # Function-hook mod + tests
+│   │   └── types/              # Shared checklist state contract
+│   └── toolbox/
 │       ├── .claude-plugin/plugin.json
 │       ├── hooks/              # Function-hook mod + tests
-│       └── types/              # Shared checklist state contract
+│       └── types/              # $.toolbox add-on API + state contract
 └── README.md
 ```
 
