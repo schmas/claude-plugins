@@ -31,6 +31,10 @@ const ALWAYS_ALLOWED = new Set([
 
 const PLACEHOLDER_STEPS = ['Understand your request', 'Plan the steps']
 
+const OWN_TOOLS = new Set([PLAN_TOOL, PROGRESS_TOOL])
+const OFF_DESCRIPTION = 'Clean View is off. Do not call this tool.'
+const OFF_REPLY = 'Clean View is off. Skip this tool and go on with the work.'
+
 const NEEDS_OK = 'Claude needs your OK to continue'
 const HAS_QUESTION = 'Claude has a question for you'
 const WAITING_REPLY = 'Claude is waiting for your reply'
@@ -527,7 +531,14 @@ async function resume($: Engine): Promise<void> {
 }
 
 async function setMode($: Engine, value: CleanViewMode): Promise<void> {
+  const wasTracking = await isTracking($)
   await update($, mode, () => value)
+
+  // The tool descriptions change only between off and the other modes; a redescribe spends the prompt cache.
+  if (wasTracking !== (value !== 'off')) {
+    $.ui.invalidate('tool.describe')
+  }
+
   await $.store.set(STORE_KEY, value)
   sendToolboxRow($, value)
   $.ui.toast(MODE_TOAST[value])
@@ -951,6 +962,17 @@ export function registerCleanView(on: On): void {
     return { ...composed, sections: [...sections, { id: SECTION_ID, text: guide(e.tools), scope: 'session' as const }] }
   })
 
+  // Off: the model is told to leave the Clean View tools alone, not only the checklist section.
+  on('tool.describe', async ($, e, next) => {
+    const described = await next(e)
+
+    if (!OWN_TOOLS.has(e.tool) || (await isTracking($))) {
+      return described
+    }
+
+    return { description: OFF_DESCRIPTION, isDeferred: true }
+  })
+
   on('turn.start', async ($, e, next) => {
     const text = e.text.trim()
 
@@ -982,6 +1004,10 @@ export function registerCleanView(on: On): void {
 
     if (isMain && !ALWAYS_ALLOWED.has(tool) && (await isTracking($)) && !(await read($, checklist)).isPlanned) {
       return { deny: GATE_MESSAGE }
+    }
+
+    if (OWN_TOOLS.has(tool) && !(await isTracking($))) {
+      return { result: OFF_REPLY }
     }
 
     if (tool === PLAN_TOOL) {

@@ -242,6 +242,26 @@ test('the plan gate stays on in both mode and is off in off mode', async ($, on)
   expect((await $.tool.call({ tool: 'Bash', command: 'ls' } as never)).deny).toBeUndefined()
 })
 
+test('off mode tells the model to skip the Clean View tools', async ($, on) => {
+  on('tool.describe', ($, e) => ({ description: e.description }))
+  await boot($, on)
+  const describe = () =>
+    $.tool.describe({ tool: PLAN, description: 'Call it first for every request.', provider: { plugin: PLUGIN } } as never)
+
+  expect((await describe()).description).toBe('Call it first for every request.')
+
+  await $.command.run({ command: 'simple', args: 'off' } as never)
+  expect(await describe()).toEqual({ description: expect.stringMatching(/Clean View is off/), isDeferred: true })
+  expect((await $.tool.call({ tool: PLAN, steps: ['Read the code', 'Fix the bug'] } as never)).result).toMatch(/Clean View is off/)
+  expect((await $.tool.call({ tool: PROGRESS, task: 'Read the code', percent: 100 } as never)).result).toMatch(/Clean View is off/)
+
+  await $.command.run({ command: 'simple', args: 'on' } as never)
+  expect((await describe()).description).toBe('Call it first for every request.')
+  const ui = await $.ui.mount(band('terminal'))
+  expect(await ui.find({ text: /Read the code/ })).toBeUndefined()
+  await ui.unmount()
+})
+
 /** Stands in for the Toolbox mod: keeps the rows sent to it and presses one from the hint line. */
 const FAKE_TOOLBOX: Plugin = {
   name: 'toolbox',
